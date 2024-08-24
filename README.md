@@ -31,8 +31,14 @@ PLYR is a lightweight, customizable audio player built with [Raylib](https://www
    ```sh
    make
    ```
-
-4. **Run the Application**:
+   
+4. **Add the Config File**:
+   ```sh
+   mkdir -p ~/.config/plyr
+   echo "music_dir /path/to/music/dir" > ~/.config/plyr/config.ini
+   ```
+   
+5. **Run the Application**:
    ```sh
    ./plyr
    ```
