@@ -42,6 +42,7 @@ void LoadSelectedMusic() {
 
   if (selectedIndex >= 0 && selectedIndex < audioFiles.count) {
     currentMusic = LoadMusicStream(audioFiles.paths[selectedIndex]);
+    currentMusic.looping = false;
     isMusicLoaded = true;
     PlayMusicStream(currentMusic);
   }
@@ -103,9 +104,18 @@ void DrawScrollableList(Rectangle listRect) {
 }
 
 void DrawUIElements(int screenWidth, int screenHeight) {
-  DrawRectangle(20, screenHeight - 20 - 12, screenWidth - 40, 12, LIGHTGRAY);
+  Rectangle timebar = {20, screenHeight - 20 - 12, screenWidth - 40, 12};
+  DrawRectangleRec(timebar, LIGHTGRAY);
   DrawRectangle(20, screenHeight - 20 - 12, (int)timePlayed, 12, MAROON);
   DrawRectangleLines(20, screenHeight - 20 - 12, screenWidth - 40, 12, GRAY);
+
+  if (CheckCollisionPointRec(GetMousePosition(), timebar) &&
+      IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+
+    float time = (GetMousePosition().x - timebar.x) / timebar.width *
+                 GetMusicTimeLength(currentMusic);
+    SeekMusicStream(currentMusic, time);
+  }
 
   const char *timestamp =
       TextFormat("%02d:%02d", (int)GetMusicTimePlayed(currentMusic) / 60,
@@ -156,10 +166,37 @@ void UpdatePlaybackStatus() {
   }
 }
 
-int main(void) {
-  const int screenWidth = 800;
-  const int screenHeight = 600;
+void CheckAndMoveToNextSong() {
+  // Ensure the music is loaded and is currently playing
+  if (isMusicLoaded) {
+    // Get the current playback time and the length of the music
+    float timePlayed = GetMusicTimePlayed(currentMusic);
+    float timeLength = GetMusicTimeLength(currentMusic);
 
+    // Check if the current playback time is greater than or equal to the length
+    if (timePlayed >=
+        (timeLength -
+         0.1f)) { // Allowing a small tolerance for end of song detection
+      // Stop the current music
+      StopMusicStream(currentMusic);
+
+      // Move to the next song in the list
+      selectedIndex++;
+      if (selectedIndex >= audioFiles.count) {
+        selectedIndex = 0; // Loop back to the start if at the end
+      }
+
+      // Load and play the next song
+      LoadSelectedMusic();
+    }
+  }
+}
+
+int main(void) {
+  int screenWidth = 800;
+  int screenHeight = 600;
+
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(screenWidth, screenHeight, "PLYR");
   InitAudioDevice();
   SetTargetFPS(60);
@@ -174,7 +211,12 @@ int main(void) {
   LoadAudioMetadata(); // Preload metadata
 
   while (!WindowShouldClose()) {
+    screenWidth = GetScreenWidth();
+    screenHeight = GetScreenHeight();
+    CheckAndMoveToNextSong(); // Check if song ended and move to next song if
     UpdatePlaybackStatus();
+    // needed
+
     BeginDrawing();
     ClearBackground(RAYWHITE);
 
