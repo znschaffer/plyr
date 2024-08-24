@@ -1,9 +1,16 @@
+#include <math.h>
+#define RINI_IMPLEMENTATION
+#include "rini.h"
 #include <libgen.h>
+#include <pwd.h>
 #include <raylib.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <taglib/tag_c.h>
+#include <unistd.h>
+#include <wordexp.h>
 
 #define FONT_SIZE 16
 #define SCROLL_SPEED 4
@@ -23,7 +30,7 @@ Music currentMusic;
 
 Font ft;
 float timePlayed = 0.0f;
-bool pause = false;
+bool paused = false;
 char *play_status = "▶";
 char *pause_status = "⏸";
 
@@ -147,12 +154,12 @@ void UpdatePlaybackStatus() {
   if (IsKeyDown(KEY_SPACE)) {
     StopMusicStream(currentMusic);
     PlayMusicStream(currentMusic);
-    pause = false;
+    paused = false;
   }
 
   if (IsKeyPressed(KEY_P)) {
-    pause = !pause;
-    if (pause)
+    paused = !paused;
+    if (paused)
       PauseMusicStream(currentMusic);
     else
       ResumeMusicStream(currentMusic);
@@ -192,7 +199,33 @@ void CheckAndMoveToNextSong() {
   }
 }
 
+#define DEFAULT_CONFIG_DIR ".config"
+
+// Function to get the XDG configuration path
+const char *get_xdg_config_path(const char *subpath) {
+  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+
+  if (xdg_config_home) {
+    // If XDG_CONFIG_HOME is set, use it
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", xdg_config_home, subpath);
+    return path;
+  } else {
+    // If XDG_CONFIG_HOME is not set, use the default location
+    struct passwd *pw = getpwuid(geteuid());
+    const char *home_dir = pw->pw_dir;
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/%s/%s", home_dir, DEFAULT_CONFIG_DIR,
+             subpath);
+    return path;
+  }
+}
 int main(void) {
+
+  const char *config_path = get_xdg_config_path("plyr/config.ini");
+  rini_config config = rini_load_config(config_path);
+  char *music_dir = rini_get_config_value_text(config, "music_dir");
+
   int screenWidth = 800;
   int screenHeight = 600;
 
@@ -201,13 +234,16 @@ int main(void) {
   InitAudioDevice();
   SetTargetFPS(60);
 
-  ft = LoadFontEx("./resources/fonts/Iosevka-Regular.ttf", 32, NULL, 40000);
+  const char *app_dir = GetApplicationDirectory();
+  ft = LoadFontEx(TextFormat("%sresources/fonts/Iosevka-Regular.ttf", app_dir),
+                  32, NULL, 40000);
   if (!ft.texture.id) {
     printf("Failed to load font\n");
     return -1;
   }
 
-  audioFiles = LoadDirectoryFilesEx("/Users/znschaffer/Music/Music", ".mp3", 1);
+  printf("MusicDir:%s", music_dir);
+  audioFiles = LoadDirectoryFilesEx(music_dir, ".mp3", 1);
   LoadAudioMetadata(); // Preload metadata
 
   while (!WindowShouldClose()) {
