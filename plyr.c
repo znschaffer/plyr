@@ -234,6 +234,7 @@ const char *get_xdg_music_path() {
 
 int main(void) {
   const char *music_dir = get_xdg_music_path();
+
   int screenWidth = 800;
   int screenHeight = 600;
 
