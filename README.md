@@ -1,7 +1,3 @@
-Here's a README template for your project:
-
----
-
 # PLYR
 
 PLYR is a lightweight, customizable audio player built with [Raylib](https://www.raylib.com/) for the UI and [TagLib](https://taglib.org/) for audio metadata extraction. The application features a scrollable list of audio files, lazy loading of metadata, search functionality, and drag-and-drop file queuing. It is designed to be responsive and intuitive, with support for album-based sorting and track number organization.
@@ -69,6 +65,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - [Raylib](https://www.raylib.com/) - A simple and easy-to-use library to enjoy videogames programming.
 - [TagLib](https://taglib.org/) - A library for reading and editing audio file metadata.
 
----
-
-Feel free to adjust any details to better fit your project's specific needs.
