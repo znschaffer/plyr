@@ -68,6 +68,7 @@ cd plyr
    After compiling, run the application from the `builddir`:
 
    ```bash
+   cp -r resources/fonts ./builddir
    ./builddir/plyr
    ```
 
