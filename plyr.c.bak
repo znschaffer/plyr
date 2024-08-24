@@ -1,0 +1,189 @@
+#include <libgen.h>
+#include <raylib.h>
+#include <stdio.h>
+#include <taglib/tag_c.h>
+
+FilePathList audioFiles; // List of audio file paths
+int scrollOffset = 0;
+int selectedIndex = 0;
+bool isMusicLoaded = false;
+Music currentMusic; // Currently loaded music
+
+void LoadSelectedMusic() {
+  if (isMusicLoaded) {
+    UnloadMusicStream(currentMusic); // Unload previously loaded music
+    isMusicLoaded = false;
+  }
+
+  if (selectedIndex >= 0 && selectedIndex < audioFiles.count) {
+    currentMusic = LoadMusicStream(audioFiles.paths[selectedIndex]);
+    isMusicLoaded = true;
+    PlayMusicStream(currentMusic);
+  }
+}
+
+void DrawScrollableList(Font ft, Rectangle listRect, int fontSize) {
+  int itemHeight = fontSize + 4; // Height of each item (with padding)
+  int visibleItems = listRect.height / itemHeight; // Number of visible items
+
+  // Draw each visible item
+  for (int i = 0; i < visibleItems && (i + scrollOffset) < audioFiles.count;
+       i++) {
+    int itemIndex = i + scrollOffset;
+    Rectangle itemRect = {listRect.x, listRect.y + i * itemHeight,
+                          listRect.width, itemHeight};
+
+    // Highlight the selected item
+    if (itemIndex == selectedIndex) {
+      DrawRectangleRec(itemRect, LIGHTGRAY);
+    }
+
+    // Draw the filename
+    DrawTextEx(ft, basename(audioFiles.paths[itemIndex]),
+               (Vector2){itemRect.x + 10, itemRect.y + 2}, fontSize, 1, BLACK);
+
+    // Detect mouse click on the item
+    if (CheckCollisionPointRec(GetMousePosition(), itemRect) &&
+        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      selectedIndex = itemIndex; // Set selected index
+      LoadSelectedMusic();       // Load the selected music file
+    }
+  }
+
+  // Handle scrolling (mouse wheel)
+  int mouseWheel = GetMouseWheelMove();
+  scrollOffset -= mouseWheel;
+  if (scrollOffset < 0)
+    scrollOffset = 0;
+  if (scrollOffset > audioFiles.count - visibleItems)
+    scrollOffset = audioFiles.count - visibleItems;
+}
+
+void DrawTextClipped(Font ft, const char *text, Rectangle rect, int fontSize,
+                     Color color) {
+  // Enable scissor mode to clip drawing to the specified rectangle
+  BeginScissorMode(rect.x, rect.y, rect.width, rect.height);
+
+  // Draw the text inside the rectangle
+  DrawTextEx(ft, text, (Vector2){rect.x, rect.y}, fontSize, 1, color);
+
+  // Disable scissor mode
+  EndScissorMode();
+}
+
+int main(void) {
+  const int screenWidth = 800;
+  const int screenHeight = 600;
+
+  InitWindow(screenWidth, screenHeight, "PLYR");
+  Font ft =
+      LoadFontEx("./resources/fonts/Iosevka-Regular.ttf", 32, NULL, 40000);
+
+  char *status;
+  InitAudioDevice();
+
+  char *song_name = "Amor Satyr & Siu Mata - AHE.mp3";
+
+  char *song_path;
+
+  asprintf(&song_path, "resources/%s", song_name);
+
+  float timePlayed = 0.0f;
+
+  bool pause = false;
+  audioFiles = LoadDirectoryFilesEx("/Users/znschaffer/Music/Music", ".mp3", 1);
+
+  SetTargetFPS(60);
+  char *play_status = "▶";
+  char *pause_status = "⏸";
+
+  TagLib_File *file;
+  while (!WindowShouldClose()) {
+    file = taglib_file_new(audioFiles.paths[selectedIndex]);
+    TagLib_Tag *tag;
+    if (file) {
+      tag = taglib_file_tag(file);
+    }
+    if (isMusicLoaded) {
+      UpdateMusicStream(currentMusic);
+      timePlayed = GetMusicTimePlayed(currentMusic) /
+                   GetMusicTimeLength(currentMusic) * (float)(screenWidth - 40);
+    }
+    BeginDrawing();
+
+    ClearBackground(RAYWHITE);
+
+    if (IsKeyDown(KEY_SPACE)) {
+      StopMusicStream(currentMusic);
+      PlayMusicStream(currentMusic);
+      pause = false;
+    }
+
+    if (IsKeyPressed(KEY_P)) {
+      pause = !pause;
+      if (pause)
+        PauseMusicStream(currentMusic);
+      else
+        ResumeMusicStream(currentMusic);
+    }
+
+    DrawRectangle(20, screenHeight - 20 - 12, screenWidth - 40, 12, LIGHTGRAY);
+    DrawRectangle(20, screenHeight - 20 - 12, (int)timePlayed, 12, MAROON);
+    DrawRectangleLines(20, screenHeight - 20 - 12, screenWidth - 40, 12, GRAY);
+
+    const char *timestamp =
+        TextFormat("%02d:%02d", (int)GetMusicTimePlayed(currentMusic) / 60,
+                   (int)GetMusicTimePlayed(currentMusic) % 60);
+
+    char *title = taglib_tag_title(tag);
+    char *artist = taglib_tag_artist(tag);
+
+    const char *info_line = TextFormat("%s - %s", artist, title);
+
+    DrawTextEx(ft, timestamp, (Vector2){20, (float)screenHeight - 40 - 12}, 16,
+               1, BLACK);
+
+    const int textWidth = (int)MeasureTextEx(ft, info_line, 16, 1).x;
+
+    DrawScrollableList(
+        ft, (Rectangle){20, 20, screenWidth - 40, screenHeight - 100},
+        16); // Draw the scrollable list
+
+    DrawTextClipped(ft, info_line,
+                    (Rectangle){(screenWidth / 2) - (textWidth / 2),
+                                screenHeight - 40 - 12, screenWidth * 0.90, 40},
+                    16, BLACK);
+
+    if (pause) {
+      status = pause_status;
+    } else {
+      status = play_status;
+    }
+
+    // for (int i = 0; i < audio_files.count; i++) {
+    //   if (i % 2 == 0)
+    //     DrawRectangle(0, 85 + 40 * i, screenWidth, 40, Fade(LIGHTGRAY,
+    //     0.5f));
+    //   else
+    //     DrawRectangle(0, 85 + 40 * i, screenWidth, 40, Fade(LIGHTGRAY,
+    //     0.3f));
+    //
+    //   DrawText(audio_files.paths[i], 120, 100 + 40 * i, 10, GRAY);
+    // }
+
+    DrawTextEx(ft, status,
+               (Vector2){screenWidth - 20 - MeasureTextEx(ft, status, 16, 1).x,
+                         screenHeight - 40 - 12},
+               16, 1, BLACK);
+    EndDrawing();
+  }
+
+  UnloadFont(ft);
+  taglib_tag_free_strings();
+  taglib_file_free(file);
+  UnloadMusicStream(currentMusic);
+  CloseAudioDevice();
+  CloseWindow();
+
+  return 0;
+}
