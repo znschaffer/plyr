@@ -1,6 +1,8 @@
 name: CI Meson
 
 on:
+  workflow_run:
+    branches: main
   push:
     paths:
       - "**.c"
