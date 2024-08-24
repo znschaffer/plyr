@@ -30,9 +30,9 @@ Music currentMusic;
 
 Font ft;
 float timePlayed = 0.0f;
-bool paused = false;
-char *play_status = "▶";
-char *pause_status = "⏸";
+bool paused = true;
+char *play_status = "⏸";
+char *pause_status = "▶";
 
 // Function prototypes
 void LoadSelectedMusic();
@@ -52,6 +52,7 @@ void LoadSelectedMusic() {
     currentMusic.looping = false;
     isMusicLoaded = true;
     PlayMusicStream(currentMusic);
+    paused = false;
   }
 }
 
@@ -75,6 +76,7 @@ void LoadAudioMetadata() {
 }
 
 void DrawScrollableList(Rectangle listRect) {
+  BeginScissorMode(listRect.x, listRect.y, listRect.width, listRect.height);
   int itemHeight = FONT_SIZE + 4;
   int visibleItems = listRect.height / itemHeight;
 
@@ -108,6 +110,8 @@ void DrawScrollableList(Rectangle listRect) {
     scrollOffset = 0;
   if (scrollOffset > audioFiles.count - visibleItems)
     scrollOffset = audioFiles.count - visibleItems;
+
+  EndScissorMode();
 }
 
 void DrawUIElements(int screenWidth, int screenHeight) {
@@ -142,12 +146,23 @@ void DrawUIElements(int screenWidth, int screenHeight) {
         FONT_SIZE, 1, BLACK);
   }
 
-  char *status = pause ? pause_status : play_status;
-  DrawTextEx(
-      ft, status,
-      (Vector2){screenWidth - 20 - MeasureTextEx(ft, status, FONT_SIZE, 1).x,
-                screenHeight - 40 - 12},
-      FONT_SIZE, 1, BLACK);
+  char *status = paused ? pause_status : play_status;
+  Vector2 pause_button_size = MeasureTextEx(ft, status, FONT_SIZE, 1);
+  Rectangle pause_button = {screenWidth - 20 - pause_button_size.x,
+                            screenHeight - 40 - 12, pause_button_size.x,
+                            pause_button_size.y};
+
+  if (CheckCollisionPointRec(GetMousePosition(), pause_button) &&
+      IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+
+    paused = !paused;
+    if (paused)
+      PauseMusicStream(currentMusic);
+    else
+      ResumeMusicStream(currentMusic);
+  }
+  DrawTextEx(ft, status, (Vector2){pause_button.x, pause_button.y}, FONT_SIZE,
+             1, BLACK);
 }
 
 void UpdatePlaybackStatus() {
@@ -257,7 +272,7 @@ int main(void) {
     ClearBackground(RAYWHITE);
 
     DrawScrollableList(
-        (Rectangle){20, 20, screenWidth - 40, screenHeight - 100});
+        (Rectangle){20, 20, screenWidth - 40, screenHeight - 80});
     DrawUIElements(screenWidth, screenHeight);
 
     EndDrawing();
