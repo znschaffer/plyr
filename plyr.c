@@ -1,123 +1,278 @@
+#include <math.h>
+#define RINI_IMPLEMENTATION
+#include "rini.h"
 #include <libgen.h>
+#include <pwd.h>
 #include <raylib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/types.h>
 #include <taglib/tag_c.h>
+#include <unistd.h>
+#include <wordexp.h>
 
-int main(void) {
-  const int screenWidth = 800;
-  const int screenHeight = 150;
+#define FONT_SIZE 16
+#define SCROLL_SPEED 4
 
-  InitWindow(screenWidth, screenHeight, "PLYR");
-  Font ft = LoadFont("./resources/fonts/Go-Mono.ttf");
+typedef struct {
+  char *filename;
+  char *artist;
+  char *title;
+} AudioMetadata;
 
-  char *status;
-  InitAudioDevice();
+FilePathList audioFiles;
+AudioMetadata *metadataList = NULL;
+int scrollOffset = 0;
+int selectedIndex = 0;
+bool isMusicLoaded = false;
+Music currentMusic;
 
-  char *song_name = "Amor Satyr & Siu Mata - AHE.mp3";
+Font ft;
+float timePlayed = 0.0f;
+bool paused = false;
+char *play_status = "▶";
+char *pause_status = "⏸";
 
-  char *song_path;
+// Function prototypes
+void LoadSelectedMusic();
+void DrawScrollableList(Rectangle listRect);
+void DrawUIElements(int screenWidth, int screenHeight);
+void UpdatePlaybackStatus();
+void LoadAudioMetadata();
 
-  asprintf(&song_path, "resources/%s", song_name);
-
-  float timePlayed = 0.0f;
-
-  bool pause = false;
-  FilePathList audio_files =
-      LoadDirectoryFilesEx("/Users/znschaffer/Music/Music", ".mp3", 1);
-
-  size_t song_idx = 0;
-  Music music = LoadMusicStream(audio_files.paths[0]);
-  music.looping = true;
-
-  TagLib_File *file = taglib_file_new(audio_files.paths[0]);
-  TagLib_Tag *tag;
-  if (file) {
-    tag = taglib_file_tag(file);
+void LoadSelectedMusic() {
+  if (isMusicLoaded) {
+    UnloadMusicStream(currentMusic);
+    isMusicLoaded = false;
   }
-  PlayMusicStream(music);
+
+  if (selectedIndex >= 0 && selectedIndex < audioFiles.count) {
+    currentMusic = LoadMusicStream(audioFiles.paths[selectedIndex]);
+    currentMusic.looping = false;
+    isMusicLoaded = true;
+    PlayMusicStream(currentMusic);
+  }
+}
+
+void LoadAudioMetadata() {
+  metadataList =
+      (AudioMetadata *)malloc(audioFiles.count * sizeof(AudioMetadata));
+
+  for (int i = 0; i < audioFiles.count; i++) {
+    TagLib_File *file = taglib_file_new(audioFiles.paths[i]);
+    TagLib_Tag *tag = file ? taglib_file_tag(file) : NULL;
+
+    metadataList[i].filename = basename(audioFiles.paths[i]);
+    metadataList[i].artist =
+        tag ? strdup(taglib_tag_artist(tag)) : strdup("Unknown Artist");
+    metadataList[i].title =
+        tag ? strdup(taglib_tag_title(tag)) : strdup("Unknown Title");
+
+    if (file)
+      taglib_file_free(file);
+  }
+}
+
+void DrawScrollableList(Rectangle listRect) {
+  int itemHeight = FONT_SIZE + 4;
+  int visibleItems = listRect.height / itemHeight;
+
+  for (int i = 0; i < visibleItems && (i + scrollOffset) < audioFiles.count;
+       i++) {
+    int itemIndex = i + scrollOffset;
+    Rectangle itemRect = {listRect.x, listRect.y + i * itemHeight,
+                          listRect.width, itemHeight};
+
+    if (itemIndex == selectedIndex) {
+      DrawRectangleRec(itemRect, LIGHTGRAY);
+    }
+
+    char displayText[256];
+    snprintf(displayText, sizeof(displayText), "%s - %s",
+             metadataList[itemIndex].artist, metadataList[itemIndex].title);
+
+    DrawTextEx(ft, displayText, (Vector2){itemRect.x + 10, itemRect.y + 2},
+               FONT_SIZE, 1, BLACK);
+
+    if (CheckCollisionPointRec(GetMousePosition(), itemRect) &&
+        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+      selectedIndex = itemIndex;
+      LoadSelectedMusic();
+    }
+  }
+
+  int mouseWheel = GetMouseWheelMove();
+  scrollOffset -= mouseWheel * SCROLL_SPEED;
+  if (scrollOffset < 0)
+    scrollOffset = 0;
+  if (scrollOffset > audioFiles.count - visibleItems)
+    scrollOffset = audioFiles.count - visibleItems;
+}
+
+void DrawUIElements(int screenWidth, int screenHeight) {
+  Rectangle timebar = {20, screenHeight - 20 - 12, screenWidth - 40, 12};
+  DrawRectangleRec(timebar, LIGHTGRAY);
+  DrawRectangle(20, screenHeight - 20 - 12, (int)timePlayed, 12, MAROON);
+  DrawRectangleLines(20, screenHeight - 20 - 12, screenWidth - 40, 12, GRAY);
+
+  if (CheckCollisionPointRec(GetMousePosition(), timebar) &&
+      IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+
+    float time = (GetMousePosition().x - timebar.x) / timebar.width *
+                 GetMusicTimeLength(currentMusic);
+    SeekMusicStream(currentMusic, time);
+  }
+
+  const char *timestamp =
+      TextFormat("%02d:%02d", (int)GetMusicTimePlayed(currentMusic) / 60,
+                 (int)GetMusicTimePlayed(currentMusic) % 60);
+  DrawTextEx(ft, timestamp, (Vector2){20, screenHeight - 40 - 12}, FONT_SIZE, 1,
+             BLACK);
+
+  if (isMusicLoaded) {
+    char *title = metadataList[selectedIndex].title;
+    char *artist = metadataList[selectedIndex].artist;
+    const char *info_line = TextFormat("%s - %s", artist, title);
+    int textWidth = (int)MeasureTextEx(ft, info_line, FONT_SIZE, 1).x;
+
+    DrawTextEx(
+        ft, info_line,
+        (Vector2){(screenWidth / 2) - (textWidth / 2), screenHeight - 40 - 12},
+        FONT_SIZE, 1, BLACK);
+  }
+
+  char *status = pause ? pause_status : play_status;
+  DrawTextEx(
+      ft, status,
+      (Vector2){screenWidth - 20 - MeasureTextEx(ft, status, FONT_SIZE, 1).x,
+                screenHeight - 40 - 12},
+      FONT_SIZE, 1, BLACK);
+}
+
+void UpdatePlaybackStatus() {
+  if (IsKeyDown(KEY_SPACE)) {
+    StopMusicStream(currentMusic);
+    PlayMusicStream(currentMusic);
+    paused = false;
+  }
+
+  if (IsKeyPressed(KEY_P)) {
+    paused = !paused;
+    if (paused)
+      PauseMusicStream(currentMusic);
+    else
+      ResumeMusicStream(currentMusic);
+  }
+
+  if (isMusicLoaded) {
+    UpdateMusicStream(currentMusic);
+    timePlayed = GetMusicTimePlayed(currentMusic) /
+                 GetMusicTimeLength(currentMusic) *
+                 (float)(GetScreenWidth() - 40);
+  }
+}
+
+void CheckAndMoveToNextSong() {
+  // Ensure the music is loaded and is currently playing
+  if (isMusicLoaded) {
+    // Get the current playback time and the length of the music
+    float timePlayed = GetMusicTimePlayed(currentMusic);
+    float timeLength = GetMusicTimeLength(currentMusic);
+
+    // Check if the current playback time is greater than or equal to the length
+    if (timePlayed >=
+        (timeLength -
+         0.1f)) { // Allowing a small tolerance for end of song detection
+      // Stop the current music
+      StopMusicStream(currentMusic);
+
+      // Move to the next song in the list
+      selectedIndex++;
+      if (selectedIndex >= audioFiles.count) {
+        selectedIndex = 0; // Loop back to the start if at the end
+      }
+
+      // Load and play the next song
+      LoadSelectedMusic();
+    }
+  }
+}
+
+#define DEFAULT_CONFIG_DIR ".config"
+
+// Function to get the XDG configuration path
+const char *get_xdg_config_path(const char *subpath) {
+  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+
+  if (xdg_config_home) {
+    // If XDG_CONFIG_HOME is set, use it
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", xdg_config_home, subpath);
+    return path;
+  } else {
+    // If XDG_CONFIG_HOME is not set, use the default location
+    struct passwd *pw = getpwuid(geteuid());
+    const char *home_dir = pw->pw_dir;
+    static char path[1024];
+    snprintf(path, sizeof(path), "%s/%s/%s", home_dir, DEFAULT_CONFIG_DIR,
+             subpath);
+    return path;
+  }
+}
+int main(void) {
+
+  const char *config_path = get_xdg_config_path("plyr/config.ini");
+  rini_config config = rini_load_config(config_path);
+  char *music_dir = rini_get_config_value_text(config, "music_dir");
+
+  int screenWidth = 800;
+  int screenHeight = 600;
+
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+  InitWindow(screenWidth, screenHeight, "PLYR");
+  InitAudioDevice();
   SetTargetFPS(60);
-  char *play_status = "▶";
-  char *pause_status = "⏸";
+
+  const char *app_dir = GetApplicationDirectory();
+  ft = LoadFontEx(TextFormat("%sresources/fonts/Iosevka-Regular.ttf", app_dir),
+                  32, NULL, 40000);
+  if (!ft.texture.id) {
+    printf("Failed to load font\n");
+    return -1;
+  }
+
+  printf("MusicDir:%s", music_dir);
+  audioFiles = LoadDirectoryFilesEx(music_dir, ".mp3", 1);
+  LoadAudioMetadata(); // Preload metadata
 
   while (!WindowShouldClose()) {
-    UpdateMusicStream(music);
-    timePlayed = GetMusicTimePlayed(music) / GetMusicTimeLength(music) *
-                 (float)(screenWidth - 40);
-    BeginDrawing();
+    screenWidth = GetScreenWidth();
+    screenHeight = GetScreenHeight();
+    CheckAndMoveToNextSong(); // Check if song ended and move to next song if
+    UpdatePlaybackStatus();
+    // needed
 
+    BeginDrawing();
     ClearBackground(RAYWHITE);
 
-    if (IsKeyDown(KEY_SPACE)) {
-      StopMusicStream(music);
-      PlayMusicStream(music);
-      pause = false;
-    }
+    DrawScrollableList(
+        (Rectangle){20, 20, screenWidth - 40, screenHeight - 100});
+    DrawUIElements(screenWidth, screenHeight);
 
-    if (IsKeyPressed(KEY_P)) {
-      pause = !pause;
-      if (pause)
-        PauseMusicStream(music);
-      else
-        ResumeMusicStream(music);
-    }
-
-    if (IsKeyDown(KEY_RIGHT)) {
-      song_idx = (song_idx + 1) % audio_files.count;
-      music = LoadMusicStream(audio_files.paths[song_idx]);
-      file = taglib_file_new(audio_files.paths[song_idx]);
-      tag = taglib_file_tag(file);
-      PlayMusicStream(music);
-    } else if (IsKeyDown(KEY_LEFT) && song_idx > 0) {
-      song_idx = (song_idx - 1) % audio_files.count;
-      music = LoadMusicStream(audio_files.paths[song_idx]);
-      file = taglib_file_new(audio_files.paths[song_idx]);
-      tag = taglib_file_tag(file);
-      PlayMusicStream(music);
-    }
-
-    DrawRectangle(20, screenHeight - 20 - 12, screenWidth - 40, 12, LIGHTGRAY);
-    DrawRectangle(20, screenHeight - 20 - 12, (int)timePlayed, 12, MAROON);
-    DrawRectangleLines(20, screenHeight - 20 - 12, screenWidth - 40, 12, GRAY);
-
-    const char *timestamp =
-        TextFormat("%02d:%02d", (int)GetMusicTimePlayed(music) / 60,
-                   (int)GetMusicTimePlayed(music) % 60);
-
-    char *title = taglib_tag_title(tag);
-    char *artist = taglib_tag_artist(tag);
-
-    const char *info_line = TextFormat("%s - %s", artist, title);
-
-    DrawTextEx(ft, timestamp, (Vector2){20, (float)screenHeight - 40 - 12}, 16,
-               1, BLACK);
-
-    const int textWidth = (int)MeasureTextEx(ft, info_line, 16, 1).x;
-
-    DrawTextEx(ft, info_line,
-               (Vector2){((float)screenWidth / 2) - ((float)textWidth / 2),
-                         (float)screenHeight - 40 - 12},
-               16, 1, BLACK);
-
-    if (pause) {
-      status = pause_status;
-    } else {
-      status = play_status;
-    }
-
-    DrawTextEx(ft, status,
-               (Vector2){screenWidth - 20 - MeasureTextEx(ft, status, 16, 1).x,
-                         screenHeight - 40 - 12},
-               16, 1, BLACK);
     EndDrawing();
   }
 
+  // Cleanup
+  for (int i = 0; i < audioFiles.count; i++) {
+    free(metadataList[i].artist);
+    free(metadataList[i].title);
+  }
+  free(metadataList);
   UnloadFont(ft);
-  taglib_tag_free_strings();
-  taglib_file_free(file);
-  UnloadMusicStream(music);
-
+  UnloadMusicStream(currentMusic);
+  UnloadDirectoryFiles(audioFiles);
   CloseAudioDevice();
-
   CloseWindow();
 
   return 0;
