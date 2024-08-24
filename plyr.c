@@ -1,7 +1,5 @@
-#include <math.h>
-#define RINI_IMPLEMENTATION
-#include "rini.h"
 #include <libgen.h>
+#include <math.h>
 #include <pwd.h>
 #include <raylib.h>
 #include <stdio.h>
@@ -214,33 +212,28 @@ void CheckAndMoveToNextSong() {
   }
 }
 
-#define DEFAULT_CONFIG_DIR ".config"
+#define DEFAULT_MUSIC_DIR "Music"
 
-// Function to get the XDG configuration path
-const char *get_xdg_config_path(const char *subpath) {
-  const char *xdg_config_home = getenv("XDG_CONFIG_HOME");
+const char *get_xdg_music_path() {
+  const char *xdg_music_dir = getenv("XDG_MUSIC_DIR");
 
-  if (xdg_config_home) {
+  if (xdg_music_dir) {
     // If XDG_CONFIG_HOME is set, use it
     static char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", xdg_config_home, subpath);
+    snprintf(path, sizeof(path), "%s", xdg_music_dir);
     return path;
   } else {
     // If XDG_CONFIG_HOME is not set, use the default location
     struct passwd *pw = getpwuid(geteuid());
     const char *home_dir = pw->pw_dir;
     static char path[1024];
-    snprintf(path, sizeof(path), "%s/%s/%s", home_dir, DEFAULT_CONFIG_DIR,
-             subpath);
+    snprintf(path, sizeof(path), "%s/%s", home_dir, DEFAULT_MUSIC_DIR);
     return path;
   }
 }
+
 int main(void) {
-
-  const char *config_path = get_xdg_config_path("plyr/config.ini");
-  rini_config config = rini_load_config(config_path);
-  char *music_dir = rini_get_config_value_text(config, "music_dir");
-
+  const char *music_dir = get_xdg_music_path();
   int screenWidth = 800;
   int screenHeight = 600;
 
