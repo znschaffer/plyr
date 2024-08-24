@@ -1,67 +1,102 @@
 # PLYR
 
-PLYR is a lightweight, customizable audio player built with [Raylib](https://www.raylib.com/) for the UI and [TagLib](https://taglib.org/) for audio metadata extraction. The application features a scrollable list of audio files, lazy loading of metadata, search functionality, and drag-and-drop file queuing. It is designed to be responsive and intuitive, with support for album-based sorting and track number organization.
+**PLYR** is a lightweight, Raylib-based music player designed for simplicity and ease of use. The app reads audio files from your `XDG_MUSIC_DIR` environment variable (usually `~/Music` on most Unix-like systems), extracts metadata (artist, title, album, track number) using TagLib, and provides an intuitive, scrollable UI to manage and play your music.
 
 ## Features
 
-- **Audio Playback**: Supports popular audio formats such as MP3.
-- **Metadata Extraction**: Uses TagLib to extract artist, title, album, and track number for each audio file.
-- **Scrollable Audio List**: Easily browse through your audio files in a scrollable list.
-- **Lazy Metadata Loading**: Audio metadata is loaded in the background for optimal performance.
-- **Search Functionality**: Filter your audio files by artist, title, or album using a search input box.
-- **Drag-and-Drop Support**: Add new audio files to the queue by dragging and dropping them into the app.
-- **Album Sorting**: Audio files are grouped by album and sorted by track number within each album.
+- **Automatic Directory Reading**: Reads audio files from the directory specified by the `XDG_MUSIC_DIR` environment variable (defaults to `~/Music`).
+- **Metadata Extraction**: Automatically extracts and displays metadata (Artist, Title, Album, and Track Number) for MP3 files using TagLib.
+- **Lazy Metadata Loading**: Metadata is loaded in the background to keep the UI responsive.
+- **Scrollable List**: Easily navigate through your playlist with a scrollable list UI.
+- **Track Sorting**: Songs are grouped by album and sorted by track number within each album.
+- **Basic Playback Controls**: Play, pause, and resume music playback, with a progress bar to visualize the current position in the track.
+- **MP3 Support**: Currently supports MP3 files only.
 
-## Installation
+## Screenshots
 
-1. **Clone the Repository**:
-   ```sh
-   git clone https://github.com/yourusername/plyr.git
-   cd plyr
+<img width="800" alt="image" src="https://github.com/user-attachments/assets/197058e4-344a-4bea-bc36-03f58a953275">
+
+
+## Getting Started
+
+### Prerequisites
+
+Make sure you have the following dependencies installed:
+
+- **Meson**: Build system to configure and manage your build.
+- **Ninja**: Build tool that Meson uses by default.
+- **Raylib**: The core library for handling graphics and audio.
+- **TagLib**: Library for reading and writing metadata in audio files.
+
+Install dependencies with your package manager. For example:
+
+```bash
+# On Ubuntu or Debian-based systems
+sudo apt install meson ninja-build libtagc0-dev libraylib-dev
+
+# On macOS with Homebrew
+brew install meson ninja taglib raylib
+```
+
+### Clone the Repository
+
+```bash
+git clone https://github.com/znschaffer/plyr.git
+cd plyr
+```
+
+## Compile
+
+1. **Configure the Build Directory**:
+
+   First, create a build directory and configure it with Meson.
+
+   ```bash
+   meson setup builddir
    ```
 
-2. **Install Dependencies**:
-   Ensure that Raylib and TagLib are installed on your system. You can use the following command for installation on a Debian-based system:
-   ```sh
-   sudo apt-get install libraylib-dev libtag1-dev
+2. **Build the Project**:
+
+   Navigate to the `builddir` and compile the project using Ninja.
+
+   ```bash
+   meson compile -C builddir
    ```
 
-3. **Compile the Project**:
-   Compile the project using `make`:
-   ```sh
-   make
+3. **Run the Application**:
+
+   After compiling, run the application from the `builddir`:
+
+   ```bash
+   ./builddir/plyr
    ```
-   
-4. **Run the Application**:
-   ```sh
-   ./plyr
-   ```
+
+### Cleaning the Build
+
+To clean the build artifacts:
+
+```bash
+meson compile -C builddir --clean
+```
+
+### Rebuilding
+
+If you make changes and need to rebuild, simply run:
+
+```bash
+meson compile -C builddir
+```
 
 ## Usage
 
-- **Navigating the List**: Scroll through your audio files using the mouse wheel or arrow keys.
-- **Playing Audio**: Click on an audio file to load and play it.
-- **Searching**: Type in the search box to filter the list by artist, title, or album.
-- **Drag-and-Drop**: Drag audio files into the app window to add them to the list.
-- **Album Sorting**: Files are automatically grouped by album and sorted by track number within each album.
-
-## Future Enhancements
-
-- **Support for More Audio Formats**: Expand support to additional audio formats.
-- **Improved UI Customization**: Enhance the UI with more customization options.
-- **Playlist Management**: Add playlist creation and management features.
-- **Equalizer and Audio Effects**: Include an equalizer and other audio effects.
+- **Automatic Directory Reading**: The app reads MP3 files from the directory specified by the `XDG_MUSIC_DIR` environment variable (defaults to `~/Music`). Ensure that this environment variable is set correctly to point to your music directory.
+- **Playback Controls**: Use the spacebar to restart the current song, and press `p` to toggle between play and pause.
+- **Track Sorting**: Songs are automatically grouped by album and sorted by track number within each album.
 
 ## Contributing
 
-Contributions are welcome! Please fork the repository and submit a pull request with your improvements.
+Contributions are welcome! Feel free to submit a pull request or open an issue if you have any suggestions or bug reports.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
-
-## Acknowledgments
-
-- [Raylib](https://www.raylib.com/) - A simple and easy-to-use library to enjoy videogames programming.
-- [TagLib](https://taglib.org/) - A library for reading and editing audio file metadata.
-
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
