@@ -1,0 +1,3 @@
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/taglib-populate.dir
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/edit_cache.dir
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/rebuild_cache.dir

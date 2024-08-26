@@ -1,0 +1,14 @@
+# Target labels
+ taglib-populate
+# Source files and their labels
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/taglib-populate
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/taglib-populate.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/CMakeFiles/taglib-populate-complete.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-build.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-configure.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-download.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-install.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-mkdir.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-patch.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-test.rule
+/Users/znschaffer/src/plyr/build/_deps/taglib-subbuild/taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-update.rule

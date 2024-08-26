@@ -1,0 +1,2 @@
+/usr/bin/ar qc libtag_c.a CMakeFiles/tag_c.dir/tag_c.cpp.o
+/opt/homebrew/opt/llvm/bin/llvm-ranlib libtag_c.a

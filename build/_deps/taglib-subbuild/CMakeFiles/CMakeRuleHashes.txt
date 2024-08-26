@@ -1,0 +1,11 @@
+# Hashes of file build rules.
+6a3cd725bfad380fec2964a9d607a44e CMakeFiles/taglib-populate
+6e3cc811c4104129302a46b11c0637ae CMakeFiles/taglib-populate-complete
+606856094b68b7432e54e2b2efa61a9c taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-build
+25ac6c93e93c1d8d89f752f8149acb9e taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-configure
+85967a19213b132c63ff84796ea62854 taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-download
+22929a0131b67988de801cb5a2351262 taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-install
+2c2629e92b353daf5055e87b2b7e6341 taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-mkdir
+53c0936a686c63fca2bb6eaa23202f68 taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-patch
+98a3fe27c451b3a4f1a00c18f511774e taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-test
+95d236999a0458cb6522922a1e9b2aa5 taglib-populate-prefix/src/taglib-populate-stamp/taglib-populate-update

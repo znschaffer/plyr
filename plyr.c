@@ -1,288 +1,351 @@
-#include <libgen.h>
-#include <math.h>
-#include <pwd.h>
-#include <raylib.h>
-#include <stdio.h>
+#include "sokol_app.h"
+#include "sokol_gfx.h"
+#include "sokol_glue.h"
+#include "sokol_log.h"
+#include <dirent.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>
-#include <taglib/tag_c.h>
-#include <unistd.h>
-#include <wordexp.h>
-
-#define FONT_SIZE 16
-#define SCROLL_SPEED 4
+#include <sys/mman.h>
+#define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+#define MINIAUDIO_IMPLEMENTATION
+#include "bindings/c/tag_c.h"
+#include "cimgui.h"
+#include "miniaudio.h"
+#include "sokol_imgui.h"
 
 typedef struct {
-  char *filename;
-  char *artist;
-  char *title;
-} AudioMetadata;
+  char *Artist;
+  char *Album;
+  char *Track;
+  char *FilePath;
+} Song;
+Song *songs;
+int song_count = 0;
 
-FilePathList audioFiles;
-AudioMetadata *metadataList = NULL;
-int scrollOffset = 0;
-int selectedIndex = 0;
-bool isMusicLoaded = false;
-Music currentMusic;
+ma_engine engine;
+ma_sound current_sound;
+bool sound_initialized = false;
+static struct {
+  sg_pass_action pass_action;
+} state;
 
-Font ft;
-float timePlayed = 0.0f;
-bool paused = true;
-char *play_status = "⏸";
-char *pause_status = "▶";
+void init_audio() {
 
-// Function prototypes
-void LoadSelectedMusic();
-void DrawScrollableList(Rectangle listRect);
-void DrawUIElements(int screenWidth, int screenHeight);
-void UpdatePlaybackStatus();
-void LoadAudioMetadata();
-
-void LoadSelectedMusic() {
-  if (isMusicLoaded) {
-    UnloadMusicStream(currentMusic);
-    isMusicLoaded = false;
-  }
-
-  if (selectedIndex >= 0 && selectedIndex < audioFiles.count) {
-    currentMusic = LoadMusicStream(audioFiles.paths[selectedIndex]);
-    currentMusic.looping = false;
-    isMusicLoaded = true;
-    PlayMusicStream(currentMusic);
-    paused = false;
+  if (ma_engine_init(NULL, &engine) != MA_SUCCESS) {
+    printf("Failed to initialize audio engine\n");
+    exit(1);
   }
 }
 
-void LoadAudioMetadata() {
-  metadataList =
-      (AudioMetadata *)malloc(audioFiles.count * sizeof(AudioMetadata));
-
-  for (int i = 0; i < audioFiles.count; i++) {
-    TagLib_File *file = taglib_file_new(audioFiles.paths[i]);
-    TagLib_Tag *tag = file ? taglib_file_tag(file) : NULL;
-
-    metadataList[i].filename = basename(audioFiles.paths[i]);
-    metadataList[i].artist =
-        tag ? strdup(taglib_tag_artist(tag)) : strdup("Unknown Artist");
-    metadataList[i].title =
-        tag ? strdup(taglib_tag_title(tag)) : strdup("Unknown Title");
-
-    if (file)
-      taglib_file_free(file);
-  }
+void play_song() {
+  ma_sound_start((&current_sound));
+  printf("Playing song\n");
 }
 
-void DrawScrollableList(Rectangle listRect) {
-  BeginScissorMode(listRect.x, listRect.y, listRect.width, listRect.height);
-  int itemHeight = FONT_SIZE + 4;
-  int visibleItems = listRect.height / itemHeight;
-
-  for (int i = 0; i < visibleItems && (i + scrollOffset) < audioFiles.count;
-       i++) {
-    int itemIndex = i + scrollOffset;
-    Rectangle itemRect = {listRect.x, listRect.y + i * itemHeight,
-                          listRect.width, itemHeight};
-
-    if (itemIndex == selectedIndex) {
-      DrawRectangleRec(itemRect, LIGHTGRAY);
-    }
-
-    char displayText[256];
-    snprintf(displayText, sizeof(displayText), "%s - %s",
-             metadataList[itemIndex].artist, metadataList[itemIndex].title);
-
-    DrawTextEx(ft, displayText, (Vector2){itemRect.x + 10, itemRect.y + 2},
-               FONT_SIZE, 1, BLACK);
-
-    if (CheckCollisionPointRec(GetMousePosition(), itemRect) &&
-        IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-      selectedIndex = itemIndex;
-      LoadSelectedMusic();
-    }
-  }
-
-  int mouseWheel = GetMouseWheelMove();
-  scrollOffset -= mouseWheel * SCROLL_SPEED;
-  if (scrollOffset < 0)
-    scrollOffset = 0;
-  if (scrollOffset > audioFiles.count - visibleItems)
-    scrollOffset = audioFiles.count - visibleItems;
-
-  EndScissorMode();
+void pause_song() {
+  ma_sound_stop(&current_sound);
+  printf("Paused song\n");
 }
 
-void DrawUIElements(int screenWidth, int screenHeight) {
-  Rectangle timebar = {20, screenHeight - 20 - 12, screenWidth - 40, 12};
-  DrawRectangleRec(timebar, LIGHTGRAY);
-  DrawRectangle(20, screenHeight - 20 - 12, (int)timePlayed, 12, MAROON);
-  DrawRectangleLines(20, screenHeight - 20 - 12, screenWidth - 40, 12, GRAY);
+void load_song(const char *file_path) {
 
-  if (CheckCollisionPointRec(GetMousePosition(), timebar) &&
-      IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-
-    float time = (GetMousePosition().x - timebar.x) / timebar.width *
-                 GetMusicTimeLength(currentMusic);
-    SeekMusicStream(currentMusic, time);
+  if (sound_initialized) {
+    ma_sound_uninit(&current_sound);
+    sound_initialized = false;
   }
-
-  const char *timestamp =
-      TextFormat("%02d:%02d", (int)GetMusicTimePlayed(currentMusic) / 60,
-                 (int)GetMusicTimePlayed(currentMusic) % 60);
-  DrawTextEx(ft, timestamp, (Vector2){20, screenHeight - 40 - 12}, FONT_SIZE, 1,
-             BLACK);
-
-  if (isMusicLoaded) {
-    char *title = metadataList[selectedIndex].title;
-    char *artist = metadataList[selectedIndex].artist;
-    const char *info_line = TextFormat("%s - %s", artist, title);
-    int textWidth = (int)MeasureTextEx(ft, info_line, FONT_SIZE, 1).x;
-
-    DrawTextEx(
-        ft, info_line,
-        (Vector2){(screenWidth / 2) - (textWidth / 2), screenHeight - 40 - 12},
-        FONT_SIZE, 1, BLACK);
-  }
-
-  char *status = paused ? pause_status : play_status;
-  Vector2 pause_button_size = MeasureTextEx(ft, status, FONT_SIZE, 1);
-  Rectangle pause_button = {screenWidth - 20 - pause_button_size.x,
-                            screenHeight - 40 - 12, pause_button_size.x,
-                            pause_button_size.y};
-
-  if (CheckCollisionPointRec(GetMousePosition(), pause_button) &&
-      IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-
-    paused = !paused;
-    if (paused)
-      PauseMusicStream(currentMusic);
-    else
-      ResumeMusicStream(currentMusic);
-  }
-  DrawTextEx(ft, status, (Vector2){pause_button.x, pause_button.y}, FONT_SIZE,
-             1, BLACK);
-}
-
-void UpdatePlaybackStatus() {
-  if (IsKeyDown(KEY_SPACE)) {
-    StopMusicStream(currentMusic);
-    PlayMusicStream(currentMusic);
-    paused = false;
-  }
-
-  if (IsKeyPressed(KEY_P)) {
-    paused = !paused;
-    if (paused)
-      PauseMusicStream(currentMusic);
-    else
-      ResumeMusicStream(currentMusic);
-  }
-
-  if (isMusicLoaded) {
-    UpdateMusicStream(currentMusic);
-    timePlayed = GetMusicTimePlayed(currentMusic) /
-                 GetMusicTimeLength(currentMusic) *
-                 (float)(GetScreenWidth() - 40);
-  }
-}
-
-void CheckAndMoveToNextSong() {
-  // Ensure the music is loaded and is currently playing
-  if (isMusicLoaded) {
-    // Get the current playback time and the length of the music
-    float timePlayed = GetMusicTimePlayed(currentMusic);
-    float timeLength = GetMusicTimeLength(currentMusic);
-
-    // Check if the current playback time is greater than or equal to the length
-    if (timePlayed >=
-        (timeLength -
-         0.1f)) { // Allowing a small tolerance for end of song detection
-      // Stop the current music
-      StopMusicStream(currentMusic);
-
-      // Move to the next song in the list
-      selectedIndex++;
-      if (selectedIndex >= audioFiles.count) {
-        selectedIndex = 0; // Loop back to the start if at the end
-      }
-
-      // Load and play the next song
-      LoadSelectedMusic();
-    }
-  }
-}
-
-#define DEFAULT_MUSIC_DIR "Music"
-
-const char *get_xdg_music_path() {
-  const char *xdg_music_dir = getenv("XDG_MUSIC_DIR");
-
-  if (xdg_music_dir) {
-    // If XDG_CONFIG_HOME is set, use it
-    static char path[1024];
-    snprintf(path, sizeof(path), "%s", xdg_music_dir);
-    return path;
+  ma_sound_stop(&current_sound);
+  if (ma_sound_init_from_file(&engine, file_path, MA_SOUND_FLAG_STREAM, NULL,
+                              NULL, &current_sound) != MA_SUCCESS) {
+    printf("Failed to load song: %s\n", file_path);
   } else {
-    // If XDG_CONFIG_HOME is not set, use the default location
-    struct passwd *pw = getpwuid(geteuid());
-    const char *home_dir = pw->pw_dir;
-    static char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", home_dir, DEFAULT_MUSIC_DIR);
-    return path;
+    sound_initialized = true;
+    printf("Loaded song: %s\n", file_path);
+    play_song();
   }
 }
 
-int main(void) {
-  const char *music_dir = get_xdg_music_path();
+void draw_controls() {
+  if (igButton("Play", (ImVec2){0, 0})) {
+    play_song();
+  }
+  igSameLine(0.0f, -1.0f);
 
-  int screenWidth = 800;
-  int screenHeight = 600;
+  if (igButton("Pause", (ImVec2){0, 0})) {
+    pause_song();
+  }
+}
+static void init(void) {
+  init_audio();
+  sg_setup(&(sg_desc){
+      .environment = sglue_environment(),
+      .logger.func = slog_func,
+  });
+  simgui_setup(&(simgui_desc_t){0});
 
-  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
-  InitWindow(screenWidth, screenHeight, "PLYR");
-  InitAudioDevice();
-  SetTargetFPS(60);
+  // initial clear color
+  state.pass_action =
+      (sg_pass_action){.colors[0] = {.load_action = SG_LOADACTION_CLEAR,
+                                     .clear_value = {0.0f, 0.5f, 1.0f, 1.0}}};
+}
 
-  const char *app_dir = GetApplicationDirectory();
-  ft = LoadFontEx(TextFormat("%sresources/fonts/Iosevka-Regular.ttf", app_dir),
-                  32, NULL, 40000);
-  if (!ft.texture.id) {
-    printf("Failed to load font\n");
-    return -1;
+int compare_songs(void *arg, const void *a, const void *b) {
+  const Song *song_a = (const Song *)a;
+  const Song *song_b = (const Song *)b;
+  const ImGuiTableColumnSortSpecs *sort_spec =
+      (const ImGuiTableColumnSortSpecs *)arg;
+
+  // Determine which column is being sorted and the direction
+  int comparison = 0;
+
+  if (sort_spec[0].ColumnIndex == 0) {
+    comparison = strcmp(song_a->Artist, song_b->Artist);
+  } else if (sort_spec[0].ColumnIndex == 1) {
+    comparison = strcmp(song_a->Album, song_b->Album);
+  } else if (sort_spec[0].ColumnIndex == 2) {
+    comparison = strcmp(song_a->Track, song_b->Track);
   }
 
-  printf("MusicDir:%s", music_dir);
-  audioFiles = LoadDirectoryFilesEx(music_dir, ".mp3", 1);
-  LoadAudioMetadata(); // Preload metadata
-
-  while (!WindowShouldClose()) {
-    screenWidth = GetScreenWidth();
-    screenHeight = GetScreenHeight();
-    CheckAndMoveToNextSong(); // Check if song ended and move to next song if
-    UpdatePlaybackStatus();
-    // needed
-
-    BeginDrawing();
-    ClearBackground(RAYWHITE);
-
-    DrawScrollableList(
-        (Rectangle){20, 20, screenWidth - 40, screenHeight - 80});
-    DrawUIElements(screenWidth, screenHeight);
-
-    EndDrawing();
+  // Reverse comparison if the sort direction is descending
+  if (sort_spec[0].SortDirection == ImGuiSortDirection_Descending) {
+    comparison = -comparison;
   }
 
-  // Cleanup
-  for (int i = 0; i < audioFiles.count; i++) {
-    free(metadataList[i].artist);
-    free(metadataList[i].title);
+  return comparison;
+}
+
+int is_audio_file(const char *filename) {
+  const char *audio_extensions[] = {".mp3", ".wav", ".flac",
+                                    ".aac", ".ogg", ".m4a"};
+  size_t num_extensions =
+      sizeof(audio_extensions) / sizeof(audio_extensions[0]);
+
+  for (size_t i = 0; i < num_extensions; ++i) {
+    if (strstr(filename, audio_extensions[i])) {
+      return 1; // Found a matching extension
+    }
   }
-  free(metadataList);
-  UnloadFont(ft);
-  UnloadMusicStream(currentMusic);
-  UnloadDirectoryFiles(audioFiles);
-  CloseAudioDevice();
-  CloseWindow();
+  return 0; // No matching extension
+}
+
+void list_audio_files(const char *dir_path, char ***file_paths, size_t *count,
+                      size_t *capacity) {
+  struct dirent *entry;
+  DIR *dp = opendir(dir_path);
+
+  if (dp == NULL) {
+    perror("opendir");
+    return;
+  }
+
+  while ((entry = readdir(dp)) != NULL) {
+    // Ignore the "." and ".." entries
+    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+      continue;
+    }
+
+    char path[1024];
+    snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
+
+    struct stat path_stat;
+    stat(path, &path_stat);
+
+    if (S_ISREG(path_stat.st_mode) && is_audio_file(entry->d_name)) {
+      // Ensure there's enough space in the array
+      if (*count >= *capacity) {
+        *capacity *= 2;
+        *file_paths = realloc(*file_paths, *capacity * sizeof(char *));
+        if (*file_paths == NULL) {
+          perror("realloc");
+          exit(EXIT_FAILURE);
+        }
+      }
+      // Store the file path
+      (*file_paths)[*count] = strdup(path);
+      (*count)++;
+    } else if (S_ISDIR(path_stat.st_mode)) {
+      // If it's a directory, recurse into it
+      list_audio_files(path, file_paths, count, capacity);
+    }
+  }
+
+  closedir(dp);
+}
+
+void load_music_from_dir(char *music_dir) {
+  size_t capacity = 100;
+  size_t count = 0;
+  char **file_paths = malloc(capacity * sizeof(char *));
+  list_audio_files(music_dir, &file_paths, &count, &capacity);
+
+  if (count > 0) {
+    songs = malloc(count * sizeof(Song));
+
+    for (size_t i = 0; i < count; i++) {
+      TagLib_File *f = taglib_file_new(file_paths[i]);
+      TagLib_Tag *t = taglib_file_tag(f);
+      songs[i].FilePath = strdup(file_paths[i]);
+      songs[i].Artist = strdup(taglib_tag_artist(t));
+      songs[i].Album = strdup(taglib_tag_album(t));
+      songs[i].Track = strdup(taglib_tag_title(t));
+      taglib_tag_free_strings();
+      taglib_file_free(f);
+      free(file_paths[i]);
+    }
+  }
+  free(file_paths);
+  song_count = count;
+}
+
+void free_songs() {
+  for (size_t i = 0; i < song_count; i++) {
+    free(songs[i].FilePath);
+    free(songs[i].Album);
+    free(songs[i].Artist);
+    free(songs[i].Track);
+  }
+
+  free(songs);
+}
+
+int set_music_dir(struct ImGuiInputTextCallbackData *data) {
+
+  printf("music_dir: %s\n", data->Buf);
 
   return 0;
+}
+
+void draw_table(Song *songs, int song_count) {
+  static int selected_row = -1;
+  static ImGuiTableFlags flags =
+      ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY |
+      ImGuiTableFlags_RowBg | ImGuiTableFlags_Reorderable;
+  if (igBeginTable("SongTable", 3, flags,
+                   (ImVec2){0, igGetWindowHeight() -
+                                   igGetTextLineHeightWithSpacing() * 4},
+                   0)) {
+
+    igTableSetupScrollFreeze(0, 1);
+    igTableSetupColumn("Artist", ImGuiTableColumnFlags_DefaultSort, 0, 0);
+    igTableSetupColumn("Album", ImGuiTableColumnFlags_None, 0, 0);
+    igTableSetupColumn("Track", ImGuiTableColumnFlags_None, 0, 0);
+    igTableHeadersRow();
+
+    ImGuiTableSortSpecs *sort_specs = igTableGetSortSpecs();
+    if (sort_specs && sort_specs->SpecsDirty) {
+
+      // Perform sorting based on the sort specs
+      qsort_r(songs, song_count, sizeof(Song), (void *)sort_specs->Specs,
+              compare_songs); // qsort_r is used for passing extra argument
+      sort_specs->SpecsDirty = false;
+    }
+
+    for (int row = 0; row < song_count; row++) {
+      igTableNextRow(ImGuiTableRowFlags_None, 0.0f);
+      igTableSetColumnIndex(0);
+      igText("%s", songs[row].Artist);
+      igTableSetColumnIndex(1);
+      igText("%s", songs[row].Album);
+      igTableSetColumnIndex(2);
+      if (igSelectable_Bool(songs[row].Track, selected_row == row,
+                            ImGuiSelectableFlags_SpanAllColumns,
+                            (ImVec2){0, 0})) {
+        selected_row = row;             // Update selected row
+        load_song(songs[row].FilePath); // Play the selected song
+      }
+    }
+
+    // igEndChild();
+    igEndTable();
+  }
+}
+
+void draw_tabs() {
+  ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+  bool yes = true;
+  if (igBeginTabBar("MyTabBar", tab_bar_flags)) {
+    if (igBeginTabItem("Tracks", &yes, 0)) {
+      igText("This is the Avocado tab!\nblah blah blah blah blah");
+      igEndTabItem();
+    }
+    if (igBeginTabItem("Albums", NULL, 0)) {
+      igText("This is the Broccoli tab!\nblah blah blah blah blah");
+      igEndTabItem();
+    }
+    if (igBeginTabItem("Playlist", NULL, 0)) {
+      igText("This is the Cucumber tab!\nblah blah blah blah blah");
+      igEndTabItem();
+    }
+    igEndTabBar();
+  }
+}
+
+static void frame(void) {
+  simgui_new_frame(&(simgui_frame_desc_t){
+      .width = sapp_width(),
+      .height = sapp_height(),
+      .delta_time = sapp_frame_duration(),
+      .dpi_scale = sapp_dpi_scale(),
+  });
+
+  /*=== UI CODE STARTS HERE ===*/
+  igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Once, (ImVec2){0, 0});
+  igSetNextWindowSize((ImVec2){sapp_width(), sapp_height()}, ImGuiCond_None);
+  igBegin("Hello Dear ImGui!", 0,
+          ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration |
+              ImGuiWindowFlags_NoMove);
+
+  char music_dir[500];
+  if (igInputText("Music Directory", music_dir, 500,
+                  ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL)) {
+
+    load_music_from_dir(music_dir);
+  }
+
+  // printf("music_dir buf: %s\n", music_dir);
+  // file picker somehow
+  // maybe just input box?
+  // then load all songs from there - run them through threaded TagLib calls
+  // fill the lis
+
+  draw_tabs();
+  draw_table(songs, song_count);
+  draw_controls();
+
+  igNewLine();
+  igButton("Play", (ImVec2){igGetFrameHeight(), igGetFrameHeight()});
+
+  igEnd();
+  /*=== UI CODE ENDS HERE ===*/
+
+  sg_begin_pass(
+      &(sg_pass){.action = state.pass_action, .swapchain = sglue_swapchain()});
+  simgui_render();
+  sg_end_pass();
+  sg_commit();
+}
+
+static void cleanup(void) {
+  free_songs();
+  simgui_shutdown();
+  sg_shutdown();
+  ma_sound_uninit(&current_sound);
+  ma_engine_uninit(&engine);
+}
+
+static void event(const sapp_event *ev) { simgui_handle_event(ev); }
+
+sapp_desc sokol_main(int argc, char *argv[]) {
+  (void)argc;
+  (void)argv;
+  return (sapp_desc){
+      .init_cb = init,
+      .frame_cb = frame,
+      .cleanup_cb = cleanup,
+      .event_cb = event,
+      .window_title = "Hello Sokol + Dear ImGui",
+      .width = 800,
+      .height = 600,
+      .icon.sokol_default = true,
+      .logger.func = slog_func,
+  };
 }
