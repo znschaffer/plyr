@@ -1,0 +1,24 @@
+Skip over malformatted audio files
+
+- taglib breaks when it see's them
+- waveform visualization would be nice
+  get pcm frames from miniaudio seems to be a problem
+  but we should be able to use a ImGui Plot to show the waveform and scrub through it.
+
+- albums should drop down with their songs?
+
+  is this complicating the album view? should it just be albums?
+
+
+- make use of more ImGui functions like context menus - maybe a top menu for configuration etc etc
+
+  make it feel like a real app!
+
+
+- click on item in queue to jump to it
+
+- Repeat toggle
+
+- Shuffle mode
+
+- auto add to playqueue mode that either takes a random song or another from the album / artist

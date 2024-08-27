@@ -19,6 +19,9 @@
 
 const char *music_dir;
 
+const char *status_pause = ">";
+const char *status_play = "||";
+
 static struct {
   sg_pass_action pass_action;
 } __attribute__((aligned(128))) state;
@@ -90,20 +93,29 @@ void draw_timeline() {
 
 void draw_controls() {
   igBeginGroup();
-  if (igButton("Play", (ImVec2){0, 0})) {
-    paused = false;
-    play_song();
+
+  const char *status;
+  if (paused) {
+    status = status_pause;
+  } else {
+    status = status_play;
+  }
+
+  if (igButton("Prev", (ImVec2){0, 0})) {
+    prev_song();
   }
   igSameLine(0.0F, 1.0F);
-  if (igButton("Pause", (ImVec2){0, 0})) {
-    paused = true;
-    pause_song();
-  }
-  igSameLine(0.0F, 1.0F);
-  if (igButton("Skip", (ImVec2){0, 0})) {
-    if (!TAILQ_EMPTY(&playqueue_head)) {
-      load_song_from_queue();
+  if (igButton(status, (ImVec2){0, 0})) {
+    if (paused) {
+      play_song();
+    } else {
+      pause_song();
     }
+    paused = !paused;
+  }
+  igSameLine(0.0F, 1.0F);
+  if (igButton("Next", (ImVec2){0, 0})) {
+    next_song();
   }
   igEndGroup();
 }
@@ -118,7 +130,9 @@ void update_audio() {
 
 static void init(void) {
 
-  init_queue();
+  init_queue(&playqueue_head);
+  init_queue(&playhistory_head);
+
   if (init_audio() == false) {
     return;
   }
@@ -176,7 +190,7 @@ void draw_albums_list() {
                             (ImVec2){0, 0})) {
 
         for (int i = 0; i < albums[row].SongCount; i++) {
-          add_to_queue(&albums[row].songs[i]);
+          push_to_tail_queue(&playqueue_head, &albums[row].songs[i]);
         }
 
         selected_album = &albums[row]; // Update selected row
@@ -254,10 +268,10 @@ void draw_tracks_list() {
                             ImGuiSelectableFlags_SpanAllColumns,
                             (ImVec2){0, 0})) {
         if (igIsKeyDown_Nil(ImGuiKey_LeftShift)) {
-          add_to_queue(&songs[row]);
+          push_to_tail_queue(&playqueue_head, &songs[row]);
         } else {
           selected_song = &songs[row]; // Update selected row
-          add_to_front(&songs[row]);
+          push_to_head_queue(&playqueue_head, &songs[row]);
           load_song_from_queue();
         }
       }
@@ -268,11 +282,11 @@ void draw_tracks_list() {
   }
 }
 
-void draw_queue(void) {
+void draw_queue(struct playqueue_tq *queue, char *label) {
   static ImGuiTableFlags flags =
       ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg;
 
-  if (igBeginTable("Queue", 3, flags,
+  if (igBeginTable(label, 3, flags,
                    (ImVec2){0, igGetWindowHeight() -
                                    igGetTextLineHeightWithSpacing() * 8},
                    0)) {
@@ -286,15 +300,20 @@ void draw_queue(void) {
     struct Song *cur_song = NULL;
 
     size_t pos = 0;
-    TAILQ_FOREACH(cur_song, &playqueue_head, songs) {
+    TAILQ_FOREACH(cur_song, queue, songs) {
       igTableNextRow(ImGuiTableRowFlags_None, 0.0f);
       igTableSetColumnIndex(0);
       igText("%s", cur_song->Artist);
       igTableSetColumnIndex(1);
       igText("%s", cur_song->Album);
       igTableSetColumnIndex(2);
-      igText("%s", cur_song->Track);
-      igTableSetColumnIndex(2);
+      if (igSelectable_Bool(cur_song->Track, false,
+                            ImGuiSelectableFlags_SpanAllColumns,
+                            (ImVec2){0, 0})) {
+        skip_to_song(queue, cur_song, pos);
+        load_song_from_queue();
+      }
+      pos++;
     }
 
     // igEndChild();
@@ -315,8 +334,12 @@ void draw_tabs(void) {
       draw_albums_list();
       igEndTabItem();
     }
-    if (igBeginTabItem("Queue", NULL, tab_item_flags)) {
-      draw_queue();
+    if (igBeginTabItem("Up Next", NULL, tab_item_flags)) {
+      draw_queue(&playqueue_head, "Up Next");
+      igEndTabItem();
+    }
+    if (igBeginTabItem("History", NULL, tab_item_flags)) {
+      draw_queue(&playhistory_head, "History");
       igEndTabItem();
     }
     igEndTabBar();
@@ -363,7 +386,8 @@ static void frame(void) {
           sound_initialized = false;
         }
 
-        clear_queue();
+        // In the future - find a way to append
+        clear_queue(&playqueue_head);
         free_songs();
         free_albums();
         song_count = 0;

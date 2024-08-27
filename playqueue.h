@@ -13,6 +13,9 @@ bool init_audio(void);
 void load_song_from_queue(void);
 void play_song(void);
 void pause_song(void);
+void prev_song(void);
+void next_song(void);
+
 void play_next_song_callback(void *data);
 
 #endif
