@@ -1,0 +1,3 @@
+[submodule "nativefiledialog-cmake"]
+	path = nativefiledialog-cmake
+	url = https://github.com/aarcangeli/nativefiledialog-cmake.git

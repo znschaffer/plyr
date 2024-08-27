@@ -6,76 +6,124 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/queue.h>
 #define CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 #define MINIAUDIO_IMPLEMENTATION
-#include "bindings/c/tag_c.h"
 #include "cimgui.h"
 #include "miniaudio.h"
+#include "nativefiledialog-cmake/src/include/nfd.h"
+#include "playqueue.h"
+#include "queue.h"
 #include "sokol_imgui.h"
+#include "song.h"
 
-typedef struct {
-  char *Artist;
-  char *Album;
-  char *Track;
-  char *FilePath;
-} Song;
-Song *songs;
-int song_count = 0;
+const char *music_dir;
 
-ma_engine engine;
-ma_sound current_sound;
-bool sound_initialized = false;
 static struct {
   sg_pass_action pass_action;
-} state;
+} __attribute__((aligned(128))) state;
 
-void init_audio() {
+void draw_timeline() {
+  float time = 0;
+  float length = 1;
+  int pcm_frame_time = 0;
+  unsigned long long pcm_frame_length = 0;
 
-  if (ma_engine_init(NULL, &engine) != MA_SUCCESS) {
-    printf("Failed to initialize audio engine\n");
-    exit(1);
+  if (sound_initialized == true) {
+    time = ma_sound_get_time_in_pcm_frames(&current_sound);
+    ma_sound_get_cursor_in_seconds(&current_sound, &time);
+    ma_sound_get_length_in_seconds(&current_sound, &length);
+    pcm_frame_time = ma_sound_get_time_in_pcm_frames(&current_sound);
+    ma_sound_get_length_in_pcm_frames(&current_sound, &pcm_frame_length);
   }
-}
 
-void play_song() {
-  ma_sound_start((&current_sound));
-  printf("Playing song\n");
-}
+  char *buf = "";
 
-void pause_song() {
-  ma_sound_stop(&current_sound);
-  printf("Paused song\n");
-}
+  igBeginGroup();
 
-void load_song(const char *file_path) {
+  igText("%d:%02d", (int)time / 60, (int)time % 60);
+  if (current_song != NULL) {
 
-  if (sound_initialized) {
-    ma_sound_uninit(&current_sound);
-    sound_initialized = false;
+    ImVec2 text_size;
+    char *artist_song = NULL;
+    asprintf(&artist_song, "%s - %s", current_song->Artist,
+             current_song->Track);
+    igCalcTextSize(&text_size, artist_song, &artist_song[strlen(artist_song)],
+                   false, 0);
+    igSameLine((igGetWindowWidth() / 2) - (text_size.x / 2), 0);
+    igText("%s - %s", current_song->Artist, current_song->Track);
   }
-  ma_sound_stop(&current_sound);
-  if (ma_sound_init_from_file(&engine, file_path, MA_SOUND_FLAG_STREAM, NULL,
-                              NULL, &current_sound) != MA_SUCCESS) {
-    printf("Failed to load song: %s\n", file_path);
-  } else {
-    sound_initialized = true;
-    printf("Loaded song: %s\n", file_path);
-    play_song();
+
+  igSameLine(igGetWindowWidth() - 48, 0);
+  igText("%d:%02d", (int)length / 60, (int)length % 60);
+  // igNewLine();
+
+  igProgressBar(time / length, (ImVec2){-1.0, 0.0}, buf);
+  ImVec2 progress_bar_size;
+  ImVec2 progress_bar_min;
+  ImVec2 progress_bar_max;
+  igGetItemRectSize(&progress_bar_size);
+  igGetItemRectMin(&progress_bar_min);
+  igGetItemRectMax(&progress_bar_max);
+
+  if (igIsItemHovered(0) &&
+      igIsMouseClicked_Bool(ImGuiMouseButton_Left, true)) {
+
+    // get point on progress bar where mouse is clicked - translate to time in
+    // song and set song time to that
+
+    if (sound_initialized == true) {
+      ImVec2 pos;
+      igGetMousePos(&pos);
+
+      float clicked_fraction =
+          (pos.x - progress_bar_min.x) / progress_bar_size.x;
+
+      ma_uint64 time_in_pcm_frames =
+          (ma_uint64)(pcm_frame_length * clicked_fraction);
+      ma_sound_seek_to_pcm_frame(&current_sound, time_in_pcm_frames);
+    }
   }
+
+  igEndGroup();
 }
 
 void draw_controls() {
+  igBeginGroup();
   if (igButton("Play", (ImVec2){0, 0})) {
+    paused = false;
     play_song();
   }
-  igSameLine(0.0f, -1.0f);
-
+  igSameLine(0.0F, 1.0F);
   if (igButton("Pause", (ImVec2){0, 0})) {
+    paused = true;
     pause_song();
   }
+  igSameLine(0.0F, 1.0F);
+  if (igButton("Skip", (ImVec2){0, 0})) {
+    if (!TAILQ_EMPTY(&playqueue_head)) {
+      load_song_from_queue();
+    }
+  }
+  igEndGroup();
 }
+
+void update_audio() {
+  if (!ma_sound_is_playing(&current_sound) && !paused) {
+    if (!TAILQ_EMPTY(&playqueue_head)) {
+      load_song_from_queue();
+    }
+  }
+}
+
 static void init(void) {
-  init_audio();
+
+  init_queue();
+  if (init_audio() == false) {
+    return;
+  }
+  music_dir = calloc(500, sizeof(char));
+
   sg_setup(&(sg_desc){
       .environment = sglue_environment(),
       .logger.func = slog_func,
@@ -85,143 +133,92 @@ static void init(void) {
   // initial clear color
   state.pass_action =
       (sg_pass_action){.colors[0] = {.load_action = SG_LOADACTION_CLEAR,
-                                     .clear_value = {0.0f, 0.5f, 1.0f, 1.0}}};
-}
-
-int compare_songs(void *arg, const void *a, const void *b) {
-  const Song *song_a = (const Song *)a;
-  const Song *song_b = (const Song *)b;
-  const ImGuiTableColumnSortSpecs *sort_spec =
-      (const ImGuiTableColumnSortSpecs *)arg;
-
-  // Determine which column is being sorted and the direction
-  int comparison = 0;
-
-  if (sort_spec[0].ColumnIndex == 0) {
-    comparison = strcmp(song_a->Artist, song_b->Artist);
-  } else if (sort_spec[0].ColumnIndex == 1) {
-    comparison = strcmp(song_a->Album, song_b->Album);
-  } else if (sort_spec[0].ColumnIndex == 2) {
-    comparison = strcmp(song_a->Track, song_b->Track);
-  }
-
-  // Reverse comparison if the sort direction is descending
-  if (sort_spec[0].SortDirection == ImGuiSortDirection_Descending) {
-    comparison = -comparison;
-  }
-
-  return comparison;
-}
-
-int is_audio_file(const char *filename) {
-  const char *audio_extensions[] = {".mp3", ".wav", ".flac",
-                                    ".aac", ".ogg", ".m4a"};
-  size_t num_extensions =
-      sizeof(audio_extensions) / sizeof(audio_extensions[0]);
-
-  for (size_t i = 0; i < num_extensions; ++i) {
-    if (strstr(filename, audio_extensions[i])) {
-      return 1; // Found a matching extension
-    }
-  }
-  return 0; // No matching extension
-}
-
-void list_audio_files(const char *dir_path, char ***file_paths, size_t *count,
-                      size_t *capacity) {
-  struct dirent *entry;
-  DIR *dp = opendir(dir_path);
-
-  if (dp == NULL) {
-    perror("opendir");
-    return;
-  }
-
-  while ((entry = readdir(dp)) != NULL) {
-    // Ignore the "." and ".." entries
-    if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-      continue;
-    }
-
-    char path[1024];
-    snprintf(path, sizeof(path), "%s/%s", dir_path, entry->d_name);
-
-    struct stat path_stat;
-    stat(path, &path_stat);
-
-    if (S_ISREG(path_stat.st_mode) && is_audio_file(entry->d_name)) {
-      // Ensure there's enough space in the array
-      if (*count >= *capacity) {
-        *capacity *= 2;
-        *file_paths = realloc(*file_paths, *capacity * sizeof(char *));
-        if (*file_paths == NULL) {
-          perror("realloc");
-          exit(EXIT_FAILURE);
-        }
-      }
-      // Store the file path
-      (*file_paths)[*count] = strdup(path);
-      (*count)++;
-    } else if (S_ISDIR(path_stat.st_mode)) {
-      // If it's a directory, recurse into it
-      list_audio_files(path, file_paths, count, capacity);
-    }
-  }
-
-  closedir(dp);
-}
-
-void load_music_from_dir(char *music_dir) {
-  size_t capacity = 100;
-  size_t count = 0;
-  char **file_paths = malloc(capacity * sizeof(char *));
-  list_audio_files(music_dir, &file_paths, &count, &capacity);
-
-  if (count > 0) {
-    songs = malloc(count * sizeof(Song));
-
-    for (size_t i = 0; i < count; i++) {
-      TagLib_File *f = taglib_file_new(file_paths[i]);
-      TagLib_Tag *t = taglib_file_tag(f);
-      songs[i].FilePath = strdup(file_paths[i]);
-      songs[i].Artist = strdup(taglib_tag_artist(t));
-      songs[i].Album = strdup(taglib_tag_album(t));
-      songs[i].Track = strdup(taglib_tag_title(t));
-      taglib_tag_free_strings();
-      taglib_file_free(f);
-      free(file_paths[i]);
-    }
-  }
-  free(file_paths);
-  song_count = count;
-}
-
-void free_songs() {
-  for (size_t i = 0; i < song_count; i++) {
-    free(songs[i].FilePath);
-    free(songs[i].Album);
-    free(songs[i].Artist);
-    free(songs[i].Track);
-  }
-
-  free(songs);
+                                     .clear_value = {0.0F, 0.5F, 1.0F, 1.0}}};
 }
 
 int set_music_dir(struct ImGuiInputTextCallbackData *data) {
-
   printf("music_dir: %s\n", data->Buf);
-
   return 0;
 }
 
-void draw_table(Song *songs, int song_count) {
+void draw_albums_list() {
   static int selected_row = -1;
+  struct Album *selected_album = NULL;
   static ImGuiTableFlags flags =
       ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY |
       ImGuiTableFlags_RowBg | ImGuiTableFlags_Reorderable;
+  if (igBeginTable("AlbumTable", 3, flags,
+                   (ImVec2){0, igGetWindowHeight() -
+                                   igGetTextLineHeightWithSpacing() * 8},
+                   0)) {
+
+    igTableSetupScrollFreeze(0, 1);
+    igTableSetupColumn("Artist", ImGuiTableColumnFlags_DefaultSort, 0, 0);
+    igTableSetupColumn("Album", ImGuiTableColumnFlags_None, 0, 0);
+    igTableHeadersRow();
+
+    ImGuiTableSortSpecs *sort_specs = igTableGetSortSpecs();
+    if (sort_specs && sort_specs->SpecsDirty) {
+
+      // Perform sorting based on the sort specs
+      qsort_r(songs, song_count, sizeof(struct Song), (void *)sort_specs->Specs,
+              compare_songs); // qsort_r is used for passing extra argument
+      sort_specs->SpecsDirty = false;
+    }
+
+    for (int row = 0; row < album_count; row++) {
+      igTableNextRow(ImGuiTableRowFlags_None, 0.0F);
+      igTableSetColumnIndex(0);
+      igText("%s", albums[row].Artist);
+      igTableSetColumnIndex(1);
+      if (igSelectable_Bool(albums[row].Album, selected_album == &albums[row],
+                            ImGuiSelectableFlags_SpanAllColumns,
+                            (ImVec2){0, 0})) {
+
+        for (int i = 0; i < albums[row].SongCount; i++) {
+          add_to_queue(&albums[row].songs[i]);
+        }
+
+        selected_album = &albums[row]; // Update selected row
+      }
+    }
+
+    // igEndChild();
+    igEndTable();
+  }
+}
+
+bool filtered_song(ImGuiTextFilter filter, size_t row) {
+  if (!ImGuiTextFilter_PassFilter(
+          &filter, songs[row].Artist,
+          &songs[row].Artist[strlen(songs[row].Artist)])) {
+    if (!ImGuiTextFilter_PassFilter(
+            &filter, songs[row].Album,
+            &songs[row].Album[strlen(songs[row].Album)])) {
+      if (!ImGuiTextFilter_PassFilter(
+              &filter, songs[row].Track,
+              &songs[row].Track[strlen(songs[row].Track)])) {
+        // doesn't match any filter
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+void draw_tracks_list() {
+  static ImGuiTextFilter filter;
+  ImGuiTextFilter_Draw(&filter, "Filter", 0);
+
+  struct Song *selected_song = NULL;
+
+  static ImGuiTableFlags flags =
+      ImGuiTableFlags_Sortable | ImGuiTableFlags_ScrollY |
+      ImGuiTableFlags_RowBg | ImGuiTableFlags_Reorderable;
+
   if (igBeginTable("SongTable", 3, flags,
                    (ImVec2){0, igGetWindowHeight() -
-                                   igGetTextLineHeightWithSpacing() * 4},
+                                   igGetTextLineHeightWithSpacing() * 9},
                    0)) {
 
     igTableSetupScrollFreeze(0, 1);
@@ -234,23 +231,35 @@ void draw_table(Song *songs, int song_count) {
     if (sort_specs && sort_specs->SpecsDirty) {
 
       // Perform sorting based on the sort specs
-      qsort_r(songs, song_count, sizeof(Song), (void *)sort_specs->Specs,
+      qsort_r(songs, song_count, sizeof(struct Song), (void *)sort_specs->Specs,
               compare_songs); // qsort_r is used for passing extra argument
       sort_specs->SpecsDirty = false;
     }
 
     for (int row = 0; row < song_count; row++) {
-      igTableNextRow(ImGuiTableRowFlags_None, 0.0f);
+
+      if (!filtered_song(filter, row)) {
+        continue;
+      }
+
+      if (songs[row].Track) {
+        igTableNextRow(ImGuiTableRowFlags_None, 0.0F);
+      }
       igTableSetColumnIndex(0);
       igText("%s", songs[row].Artist);
       igTableSetColumnIndex(1);
       igText("%s", songs[row].Album);
       igTableSetColumnIndex(2);
-      if (igSelectable_Bool(songs[row].Track, selected_row == row,
+      if (igSelectable_Bool(songs[row].Track, selected_song == &songs[row],
                             ImGuiSelectableFlags_SpanAllColumns,
                             (ImVec2){0, 0})) {
-        selected_row = row;             // Update selected row
-        load_song(songs[row].FilePath); // Play the selected song
+        if (igIsKeyDown_Nil(ImGuiKey_LeftShift)) {
+          add_to_queue(&songs[row]);
+        } else {
+          selected_song = &songs[row]; // Update selected row
+          add_to_front(&songs[row]);
+          load_song_from_queue();
+        }
       }
     }
 
@@ -259,20 +268,55 @@ void draw_table(Song *songs, int song_count) {
   }
 }
 
-void draw_tabs() {
+void draw_queue(void) {
+  static ImGuiTableFlags flags =
+      ImGuiTableFlags_ScrollY | ImGuiTableFlags_RowBg;
+
+  if (igBeginTable("Queue", 3, flags,
+                   (ImVec2){0, igGetWindowHeight() -
+                                   igGetTextLineHeightWithSpacing() * 8},
+                   0)) {
+
+    igTableSetupScrollFreeze(0, 1);
+    igTableSetupColumn("Artist", ImGuiTableColumnFlags_DefaultSort, 0, 0);
+    igTableSetupColumn("Album", ImGuiTableColumnFlags_None, 0, 0);
+    igTableSetupColumn("Track", ImGuiTableColumnFlags_None, 0, 0);
+    igTableHeadersRow();
+
+    struct Song *cur_song = NULL;
+
+    size_t pos = 0;
+    TAILQ_FOREACH(cur_song, &playqueue_head, songs) {
+      igTableNextRow(ImGuiTableRowFlags_None, 0.0f);
+      igTableSetColumnIndex(0);
+      igText("%s", cur_song->Artist);
+      igTableSetColumnIndex(1);
+      igText("%s", cur_song->Album);
+      igTableSetColumnIndex(2);
+      igText("%s", cur_song->Track);
+      igTableSetColumnIndex(2);
+    }
+
+    // igEndChild();
+    igEndTable();
+  }
+}
+
+void draw_tabs(void) {
   ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_None;
+  ImGuiTabItemFlags tab_item_flags = ImGuiTabItemFlags_NoCloseButton;
   bool yes = true;
   if (igBeginTabBar("MyTabBar", tab_bar_flags)) {
-    if (igBeginTabItem("Tracks", &yes, 0)) {
-      igText("This is the Avocado tab!\nblah blah blah blah blah");
+    if (igBeginTabItem("Tracks", &yes, tab_item_flags)) {
+      draw_tracks_list();
       igEndTabItem();
     }
-    if (igBeginTabItem("Albums", NULL, 0)) {
-      igText("This is the Broccoli tab!\nblah blah blah blah blah");
+    if (igBeginTabItem("Albums", NULL, tab_item_flags)) {
+      draw_albums_list();
       igEndTabItem();
     }
-    if (igBeginTabItem("Playlist", NULL, 0)) {
-      igText("This is the Cucumber tab!\nblah blah blah blah blah");
+    if (igBeginTabItem("Queue", NULL, tab_item_flags)) {
+      draw_queue();
       igEndTabItem();
     }
     igEndTabBar();
@@ -280,12 +324,25 @@ void draw_tabs() {
 }
 
 static void frame(void) {
+
+  // ImGuiIO *io = igGetIO();
+  // ImFontConfig *cfg = NULL;
+  //
+  // ImFont *font = ImFontAtlas_AddFontFromFileTTF(
+  //     io->Fonts,
+  //     "/Users/znschaffer/src/plyr/resources/fonts/Iosevka-Regular.ttf", 18,
+  //     NULL, ImFontAtlas_GetGlyphRangesDefault(io->Fonts));
+  // ImFontAtlas_Build(io->Fonts);
+
+  // igPushFont(font);
   simgui_new_frame(&(simgui_frame_desc_t){
       .width = sapp_width(),
       .height = sapp_height(),
       .delta_time = sapp_frame_duration(),
       .dpi_scale = sapp_dpi_scale(),
   });
+
+  update_audio();
 
   /*=== UI CODE STARTS HERE ===*/
   igSetNextWindowPos((ImVec2){0, 0}, ImGuiCond_Once, (ImVec2){0, 0});
@@ -294,11 +351,27 @@ static void frame(void) {
           ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDecoration |
               ImGuiWindowFlags_NoMove);
 
-  char music_dir[500];
-  if (igInputText("Music Directory", music_dir, 500,
-                  ImGuiInputTextFlags_EnterReturnsTrue, NULL, NULL)) {
+  if (igButton("Open Music Directory", (ImVec2){0, 0})) {
+    nfdchar_t res = NFD_PickFolder(NULL, &music_dir);
+    if (res == NFD_OKAY) {
+      if (song_count > 0) {
+        pause_song();
+        current_song = NULL;
 
-    load_music_from_dir(music_dir);
+        if (sound_initialized) {
+          ma_sound_uninit(&current_sound);
+          sound_initialized = false;
+        }
+
+        clear_queue();
+        free_songs();
+        free_albums();
+        song_count = 0;
+        album_count = 0;
+      }
+
+      load_music_from_dir(music_dir);
+    }
   }
 
   // printf("music_dir buf: %s\n", music_dir);
@@ -308,11 +381,8 @@ static void frame(void) {
   // fill the lis
 
   draw_tabs();
-  draw_table(songs, song_count);
+  draw_timeline();
   draw_controls();
-
-  igNewLine();
-  igButton("Play", (ImVec2){igGetFrameHeight(), igGetFrameHeight()});
 
   igEnd();
   /*=== UI CODE ENDS HERE ===*/
@@ -326,6 +396,8 @@ static void frame(void) {
 
 static void cleanup(void) {
   free_songs();
+  free_albums();
+  free(music_dir);
   simgui_shutdown();
   sg_shutdown();
   ma_sound_uninit(&current_sound);
@@ -342,10 +414,10 @@ sapp_desc sokol_main(int argc, char *argv[]) {
       .frame_cb = frame,
       .cleanup_cb = cleanup,
       .event_cb = event,
-      .window_title = "Hello Sokol + Dear ImGui",
+      .window_title = "plyr",
       .width = 800,
       .height = 600,
-      .icon.sokol_default = true,
+      .icon.sokol_default = false,
       .logger.func = slog_func,
   };
 }

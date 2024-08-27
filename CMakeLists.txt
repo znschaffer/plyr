@@ -21,6 +21,7 @@ add_library(cimgui STATIC
     cimgui/imgui/imgui_demo.cpp)
 target_include_directories(cimgui INTERFACE cimgui)
 
+
 #=== LIBRARY: sokol
 # add headers to the the file list because they are useful to have in IDEs
 set(SOKOL_HEADERS
@@ -59,14 +60,15 @@ set_target_properties(tag PROPERTIES ENABLE_BINDINGS ON)
 
 #=== EXECUTABLE: plyr
 if(CMAKE_SYSTEM_NAME STREQUAL Windows)
-  add_executable(plyr WIN32 plyr.c)
+  add_executable(plyr WIN32 plyr.c song.c playqueue.c queue.c)
   set_property(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT plyr)
 else()
-  add_executable(plyr plyr.c)
+  add_executable(plyr plyr.c song.c playqueue.c queue.c)
 endif()
 
+add_subdirectory(./nativefiledialog-cmake)
 target_include_directories(plyr PRIVATE ${taglib_SOURCE_DIR} ${taglib_BINARY_DIR})
-target_link_libraries(plyr sokol tag_c)
+target_link_libraries(plyr sokol tag_c  "-framework AppKit" nativefiledialog )
 
 # Emscripten-specific linker options
 if (CMAKE_SYSTEM_NAME STREQUAL Emscripten)
@@ -84,5 +86,7 @@ if (CMAKE_C_COMPILER_ID MATCHES "Clang" AND NOT CMAKE_SYSTEM_NAME STREQUAL Emscr
   target_link_options(plyr PRIVATE LINKER:-dead_strip)
 endif()
 
+target_compile_options(plyr PRIVATE -fsanitize=address)
+target_link_options(plyr PRIVATE -fsanitize=address)
 # this hack removes the xxx-CMakeForceLinker.cxx dummy file
 set_target_properties(plyr PROPERTIES LINKER_LANGUAGE C)

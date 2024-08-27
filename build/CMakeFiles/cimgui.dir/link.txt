@@ -1,2 +1,0 @@
-/usr/bin/ar qc libcimgui.a CMakeFiles/cimgui.dir/cimgui/cimgui.cpp.o CMakeFiles/cimgui.dir/cimgui/imgui/imgui.cpp.o CMakeFiles/cimgui.dir/cimgui/imgui/imgui_widgets.cpp.o CMakeFiles/cimgui.dir/cimgui/imgui/imgui_draw.cpp.o CMakeFiles/cimgui.dir/cimgui/imgui/imgui_tables.cpp.o CMakeFiles/cimgui.dir/cimgui/imgui/imgui_demo.cpp.o
-/opt/homebrew/opt/llvm/bin/llvm-ranlib libcimgui.a
