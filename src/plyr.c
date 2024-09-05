@@ -117,7 +117,6 @@ static void frame(void) {
   // fill the lis
 
   draw_tabs();
-  draw_waveform();
   draw_timeline();
   draw_controls();
 

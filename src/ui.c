@@ -14,6 +14,9 @@ char *music_dir;
 
 void draw_waveform(void) {
 
+  if (true) {
+    return;
+  }
   if (audio_data_size == 0 || audio_data == NULL) {
     return;
   }
@@ -28,6 +31,7 @@ void draw_timeline() {
   int pcm_frame_time = 0;
   unsigned long long pcm_frame_length = 0;
 
+  // waveform decoding - it currently takes way too long to do
   if (sound_initialized == true) {
     time = ma_sound_get_time_in_pcm_frames(&current_sound);
     ma_sound_get_cursor_in_seconds(&current_sound, &time);
@@ -193,7 +197,7 @@ void draw_tracks_list() {
       ImGuiTableFlags_RowBg | ImGuiTableFlags_Reorderable;
 
   if (igBeginTable("SongTable", 3, flags,
-                   (ImVec2){0, igGetWindowHeight() * 0.5}, 0)) {
+                   (ImVec2){0,igGetWindowHeight() * 0.75}, 0)) {
 
     igTableSetupScrollFreeze(0, 1);
     igTableSetupColumn("Artist", ImGuiTableColumnFlags_DefaultSort, 0, 0);
